@@ -58,14 +58,17 @@ impl ProfileLoader {
     pub fn load_from_file(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let file_path = Path::new(path);
         
-        if !file_path.exists() {
-            warn!("Arquivo de perfis não encontrado: {}", path);
-            return Ok(());
-        }
-        
-        let mut file = File::open(file_path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
+        // Try to load from file first
+        let contents = if file_path.exists() {
+            let mut file = File::open(file_path)?;
+            let mut contents = String::new();
+            file.read_to_string(&mut contents)?;
+            contents
+        } else {
+            // Fallback to embedded profiles
+            warn!("Arquivo de perfis não encontrado: {}, usando perfis embutidos", path);
+            include_str!("../../profiles/profiles.json").to_string()
+        };
         
         let profiles: HashMap<String, HashMap<String, DeviceProfileEntry>> = 
             serde_json::from_str(&contents)?;

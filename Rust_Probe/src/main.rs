@@ -119,15 +119,55 @@ fn should_analyze(vid: u16, _pid: u16, debug_mode: bool) -> bool {
         return true;
     }
     
-    let arduino_vids = [0x2341, 0x2A03, 0x1B4F];
-    let esp_vids = [0x303A, 0x10C4];
-    let teensy_vids = [0x16C0];
-    let clone_vids = [0x1A86, 0x0403, 0x067B];
+    // Arduino VIDs (oficial e clones)
+    let arduino_vids = [
+        0x2341, // Arduino oficial
+        0x2A03, // Arduino.org
+        0x1B4F, // SparkFun
+    ];
     
-    arduino_vids.contains(&vid) 
+    // ESP32/ESP8266 VIDs
+    let esp_vids = [
+        0x303A, // Espressif (ESP32-S2/S3/C3)
+        0x10C4, // Silicon Labs (CP210x usado em ESP)
+        0x1A86, // QinHeng (CH340 usado em ESP/Arduino clones)
+    ];
+    
+    // Teensy VIDs
+    let teensy_vids = [
+        0x16C0, // PJRC (Teensy)
+    ];
+    
+    // Clone/Generic USB-Serial VIDs (muito usados em spoofing)
+    let clone_vids = [
+        0x1A86, // WCH CH340/CH341/CH552 (MUITO COMUM EM CLONES)
+        0x0403, // FTDI (FT232, usado em muitos clones)
+        0x067B, // Prolific (PL2303)
+        0x10C4, // Silicon Labs CP210x
+        0x0483, // STMicroelectronics (STM32)
+    ];
+    
+    // Logitech VID (para detectar spoofing)
+    let peripheral_vids = [
+        0x046D, // Logitech (ALVO COMUM DE SPOOFING!)
+        0x045E, // Microsoft
+        0x1532, // Razer
+        0x0B05, // ASUS
+    ];
+    
+    // Check if it's a known microcontroller/dev board
+    let is_dev_board = arduino_vids.contains(&vid) 
         || esp_vids.contains(&vid)
         || teensy_vids.contains(&vid)
-        || clone_vids.contains(&vid)
+        || clone_vids.contains(&vid);
+    
+    // Check if it's a peripheral VID (potential spoofing target)
+    let is_peripheral = peripheral_vids.contains(&vid);
+    
+    // Analyze if:
+    // 1. It's a dev board/microcontroller
+    // 2. It's a peripheral (to detect spoofing)
+    is_dev_board || is_peripheral
 }
 
 fn print_device_report(analysis: &DeviceAnalysis, verbose: bool) {
@@ -206,6 +246,63 @@ fn print_device_report(analysis: &DeviceAnalysis, verbose: bool) {
         println!("\n{} Stack USB Detectada", "[OK]".green());
         println!("  Stack: {}", stack.as_str().bright_yellow());
         println!("  Confianca: {:.1}%", analysis.stack.confidence * 100.0);
+    }
+    
+    // IDENTITY ANALYSIS - Claim vs Reality
+    if let Some(ref identity) = analysis.identity_analysis {
+        if identity.is_spoofed || identity.mismatch.has_mismatch {
+            println!("\n{} ANALISE DE IDENTIDADE (Claim vs Reality)", "[!!!]".bright_red().bold());
+            
+            println!("\n  {} Identidade Alegada:", "CLAIM:".bright_cyan());
+            println!("    VID:PID: 0x{:04X}:0x{:04X}", identity.claimed.vid, identity.claimed.pid);
+            if let Some(ref mfr) = identity.claimed.manufacturer {
+                println!("    Fabricante: {}", mfr);
+            }
+            if let Some(ref prod) = identity.claimed.product {
+                println!("    Produto: {}", prod);
+            }
+            
+            println!("\n  {} Comportamento Observado:", "REALITY:".bright_yellow());
+            println!("    Interfaces: {} | Endpoints: {}", 
+                     identity.observed.num_interfaces,
+                     identity.observed.num_endpoints);
+            if let Some(ref stack) = identity.observed.detected_stack {
+                println!("    Stack Real: {}", stack.bright_red());
+            }
+            if identity.observed.has_cdc_remnants {
+                println!("    CDC Remnants: {} (suspeito!)", "SIM".red());
+            }
+            
+            if !identity.inferred.candidates.is_empty() {
+                println!("\n  {} Origem Inferida:", "INFERRED:".bright_magenta());
+                for (i, candidate) in identity.inferred.candidates.iter().enumerate() {
+                    println!("    {}. {} ({:.1}%)", 
+                             i + 1,
+                             candidate.name.bright_yellow(),
+                             candidate.probability * 100.0);
+                    for evidence in &candidate.evidence {
+                        println!("       - {}", evidence.dimmed());
+                    }
+                }
+            }
+            
+            if !identity.mismatch.mismatches.is_empty() {
+                println!("\n  {} Incompatibilidades Detectadas:", "MISMATCHES:".red().bold());
+                for mismatch in &identity.mismatch.mismatches {
+                    println!("    [{}] {}", mismatch.category.red(), "");
+                    println!("      Alegado: {}", mismatch.claimed.dimmed());
+                    println!("      Observado: {}", mismatch.observed.yellow());
+                }
+            }
+            
+            println!("\n  {} Identity Score: {:.1}%", 
+                     "SCORE:".bright_white(),
+                     identity.identity_score * 100.0);
+            
+            if identity.is_spoofed {
+                println!("  {} DISPOSITIVO PROVAVELMENTE SPOOFADO!", "VERDICT:".bright_red().bold());
+            }
+        }
     }
     
     println!("\n{} Pontuacao de Confianca", "[!]".yellow());

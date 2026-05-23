@@ -1,8 +1,8 @@
 use rusb::{Device, Context};
 use log::{info, debug, error};
-use crate::core::{ConfidenceScore, AnalysisError, Anomaly};
+use crate::core::{ConfidenceScore, AnalysisError, Anomaly, IdentityAnalysis};
 use crate::layers::*;
-use crate::engine::{ConfidenceEngine, LayerResults, SignatureDatabase, ProfileLoader};
+use crate::engine::{ConfidenceEngine, LayerResults, SignatureDatabase, ProfileLoader, FingerprintDatabase, OriginInferenceEngine};
 
 #[derive(Debug, Clone)]
 pub struct DeviceAnalysis {
@@ -24,12 +24,15 @@ pub struct DeviceAnalysis {
     pub is_known_device: bool,
     pub seen_count: u32,
     pub matched_profile_brand: Option<String>,
+    pub identity_analysis: Option<IdentityAnalysis>,
 }
 
 pub struct DeviceAnalyzer {
     confidence_engine: ConfidenceEngine,
     signature_db: SignatureDatabase,
     profile_loader: ProfileLoader,
+    fingerprint_db: FingerprintDatabase,
+    origin_inference: OriginInferenceEngine,
 }
 
 impl DeviceAnalyzer {
@@ -48,6 +51,8 @@ impl DeviceAnalyzer {
             confidence_engine,
             signature_db: SignatureDatabase::new("data/device_signatures.json"),
             profile_loader,
+            fingerprint_db: FingerprintDatabase::new(),
+            origin_inference: OriginInferenceEngine::new(),
         }
     }
     
@@ -88,7 +93,13 @@ impl DeviceAnalyzer {
                 result
             }
             Err(e) => {
-                error!("Camada 3 falhou: {}", e);
+                // Check if it's a Windows access error (expected for HID devices in use)
+                let error_msg = e.to_string();
+                if error_msg.contains("Operation not supported") || error_msg.contains("Input/Output") || error_msg.contains("Access") {
+                    debug!("Camada 3: Dispositivo HID em uso pelo sistema (esperado no Windows)");
+                } else {
+                    error!("Camada 3 falhou: {}", e);
+                }
                 None
             }
         };
@@ -104,7 +115,13 @@ impl DeviceAnalyzer {
                 result
             }
             Err(e) => {
-                error!("Camada 4 falhou: {}", e);
+                // Check if it's a Windows access error (expected for devices in use)
+                let error_msg = e.to_string();
+                if error_msg.contains("Operation not supported") || error_msg.contains("Access") {
+                    debug!("Camada 4: Dispositivo em uso pelo sistema (esperado no Windows)");
+                } else {
+                    error!("Camada 4 falhou: {}", e);
+                }
                 None
             }
         };
@@ -186,6 +203,16 @@ impl DeviceAnalyzer {
             passive.serial.as_deref(),
         );
         
+        // CLAIM vs REALITY Analysis
+        let identity_analysis = self.perform_identity_analysis(
+            &passive,
+            &structural,
+            &hid,
+            &cdc,
+            &stack,
+            &timing,
+        );
+        
         info!("Analise concluida - Confianca: {:.2}, Nivel: {:?}, Anomalias: {}, Visto: {}x", 
               confidence.overall, confidence.trust_level, anomalies.len(), seen_count);
         
@@ -208,7 +235,122 @@ impl DeviceAnalyzer {
             is_known_device,
             seen_count,
             matched_profile_brand,
+            identity_analysis: Some(identity_analysis),
         })
+    }
+    
+    fn perform_identity_analysis(
+        &self,
+        passive: &PassiveResult,
+        structural: &StructuralResult,
+        hid: &Option<HIDResult>,
+        cdc: &Option<CDCResult>,
+        stack: &StackResult,
+        timing: &TimingResult,
+    ) -> IdentityAnalysis {
+        use crate::core::{ClaimedIdentity, ObservedBehavior, IdentityAnalysis, MismatchSeverity, IdentityMismatch, MismatchDetail};
+        
+        // Build claimed identity
+        let claimed = ClaimedIdentity {
+            vid: passive.vid,
+            pid: passive.pid,
+            manufacturer: passive.manufacturer.clone(),
+            product: passive.product.clone(),
+            serial: passive.serial.clone(),
+            device_class: passive.device_class,
+            device_subclass: passive.device_subclass,
+            device_protocol: passive.device_protocol,
+        };
+        
+        // Build observed behavior
+        let observed = ObservedBehavior {
+            num_interfaces: structural.topology.num_interfaces,
+            num_endpoints: structural.topology.endpoint_addresses.len(),
+            endpoint_addresses: structural.topology.endpoint_addresses.clone(),
+            endpoint_packet_sizes: structural.topology.endpoint_max_packet_sizes.clone(),
+            endpoint_intervals: structural.topology.endpoint_intervals.clone(),
+            hid_report_descriptor_hash: hid.as_ref().map(|h| {
+                use sha2::{Sha256, Digest};
+                let mut hasher = Sha256::new();
+                hasher.update(&h.report_descriptor);
+                hasher.finalize().to_vec()
+            }),
+            hid_report_descriptor_size: hid.as_ref().map(|h| h.report_descriptor.len()),
+            hid_usage_page: hid.as_ref().and_then(|h| h.usage_page),
+            hid_usage: hid.as_ref().and_then(|h| h.usage),
+            hid_polling_interval: None, // TODO: extract from endpoint descriptor
+            detected_stack: stack.detected_stack.as_ref().map(|s| s.as_str().to_string()),
+            stack_confidence: stack.confidence,
+            enumeration_timing_us: 0, // TODO: measure
+            descriptor_read_jitter_us: timing.repeated_read_stats.jitter_us,
+            control_response_avg_us: timing.repeated_read_stats.mean_us,
+            has_cdc_remnants: cdc.is_some(),
+            has_interface_gaps: structural.topology.num_interfaces > 1 && structural.topology.endpoint_addresses.len() < structural.topology.num_interfaces as usize * 2,
+            has_endpoint_gaps: false, // TODO: detect gaps in endpoint numbering
+            descriptor_ordering_anomaly: false, // TODO: analyze descriptor order
+        };
+        
+        // Infer origin
+        let inferred = self.origin_inference.infer_origin(&observed);
+        
+        // Detect mismatches
+        let mut mismatches = Vec::new();
+        let mut mismatch_severity = MismatchSeverity::None;
+        
+        // Check topology mismatch
+        if let Some(topo_match) = self.fingerprint_db.compare_topology(
+            passive.vid,
+            passive.pid,
+            structural.topology.num_interfaces,
+            structural.topology.endpoint_addresses.len(),
+        ) {
+            if !topo_match.matches {
+                mismatches.push(MismatchDetail {
+                    category: "Topology".to_string(),
+                    claimed: format!("{} interfaces, {} endpoints", topo_match.expected_interfaces, topo_match.expected_endpoints),
+                    observed: format!("{} interfaces, {} endpoints", topo_match.observed_interfaces, topo_match.observed_endpoints),
+                    impact: 0.3,
+                });
+                mismatch_severity = MismatchSeverity::Major;
+            }
+        }
+        
+        // Check impossible combinations
+        let impossible = self.origin_inference.detect_impossible_combinations(&claimed, &observed);
+        if !impossible.is_empty() {
+            for imp in impossible {
+                mismatches.push(MismatchDetail {
+                    category: "Impossible Combination".to_string(),
+                    claimed: format!("VID:0x{:04X} PID:0x{:04X}", passive.vid, passive.pid),
+                    observed: imp.clone(),
+                    impact: 0.5,
+                });
+            }
+            mismatch_severity = MismatchSeverity::Critical;
+        }
+        
+        // Calculate identity score
+        let identity_score = if mismatches.is_empty() {
+            1.0
+        } else {
+            let total_impact: f32 = mismatches.iter().map(|m| m.impact).sum();
+            (1.0 - total_impact).max(0.0)
+        };
+        
+        let is_spoofed = mismatch_severity == MismatchSeverity::Major || mismatch_severity == MismatchSeverity::Critical;
+        
+        IdentityAnalysis {
+            claimed,
+            observed,
+            inferred,
+            mismatch: IdentityMismatch {
+                has_mismatch: !mismatches.is_empty(),
+                severity: mismatch_severity,
+                mismatches,
+            },
+            identity_score,
+            is_spoofed,
+        }
     }
 }
 
