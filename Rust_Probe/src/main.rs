@@ -1,0 +1,264 @@
+use rusb::{Context, UsbContext};
+use std::io::{self, Write};
+use std::env;
+use log::{info, error};
+use colored::Colorize;
+
+use RustProbe::engine::{DeviceAnalyzer, DeviceAnalysis};
+use RustProbe::core::TrustLevel;
+
+fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    
+    let args: Vec<String> = env::args().collect();
+    let debug_mode = args.contains(&"--debug".to_string());
+    let verbose_mode = args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string());
+
+    let context = match Context::new() {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            eprintln!("Erro ao inicializar contexto USB: {}", e);
+            eprintln!("No Windows, voce pode precisar instalar drivers libusb.");
+            eprintln!("Baixe em: https://github.com/libusb/libusb/releases");
+            pause();
+            std::process::exit(1);
+        }
+    };
+
+    print_header();
+    
+    if debug_mode {
+        println!("[!] MODO DEBUG: Mostrando todos os dispositivos USB\n");
+    }
+
+    info!("Escaneando dispositivos USB...");
+    
+    let devices = match context.devices() {
+        Ok(devs) => devs,
+        Err(e) => {
+            error!("Erro ao listar dispositivos: {}", e);
+            pause();
+            std::process::exit(1);
+        }
+    };
+
+    let analyzer = DeviceAnalyzer::new();
+    let mut analyses = Vec::new();
+    let mut total_devices = 0;
+
+    for device in devices.iter() {
+        total_devices += 1;
+        
+        if let Ok(desc) = device.device_descriptor() {
+            let vid = desc.vendor_id();
+            let pid = desc.product_id();
+            
+            if debug_mode {
+                println!("Dispositivo {}: VID=0x{:04X} PID=0x{:04X}", total_devices, vid, pid);
+            }
+            
+            if should_analyze(vid, pid, debug_mode) {
+                info!("Analisando dispositivo VID=0x{:04X} PID=0x{:04X}", vid, pid);
+                
+                match analyzer.analyze(&device) {
+                    Ok(analysis) => {
+                        analyses.push(analysis);
+                    }
+                    Err(e) => {
+                        error!("Falha ao analisar dispositivo: {}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    println!();
+    
+    if analyses.is_empty() {
+        println!("Nenhum dispositivo suspeito detectado.");
+        println!("Total de dispositivos USB: {}", total_devices);
+        if !debug_mode {
+            println!("\nExecute com --debug para ver todos os dispositivos USB.");
+        }
+    } else {
+        println!("Encontrado(s) {} dispositivo(s) para analise detalhada\n", analyses.len());
+        println!("{}", "=".repeat(80));
+        
+        for (i, analysis) in analyses.iter().enumerate() {
+            println!("\n{} Dispositivo {}/{} {}", 
+                     "[".bright_white(), 
+                     i + 1, 
+                     analyses.len(),
+                     "]".bright_white());
+            print_device_report(analysis, verbose_mode);
+            println!("{}", "=".repeat(80));
+        }
+        
+        print_statistics(&analyses);
+    }
+    
+    pause();
+}
+
+fn print_header() {
+    println!("{}", "╔════════════════════════════════════════════════════════════════════════════╗".bright_cyan());
+    println!("{}", "║     Sistema Avancado de Fingerprinting USB - Rust Probe v0.5.0           ║".bright_cyan());
+    println!("{}", "║     Detecao Multi-Camada de Spoofing e Autenticidade                     ║".bright_cyan());
+    println!("{}", "╚════════════════════════════════════════════════════════════════════════════╝".bright_cyan());
+    println!();
+}
+
+fn should_analyze(vid: u16, _pid: u16, debug_mode: bool) -> bool {
+    if debug_mode {
+        return true;
+    }
+    
+    let arduino_vids = [0x2341, 0x2A03, 0x1B4F];
+    let esp_vids = [0x303A, 0x10C4];
+    let teensy_vids = [0x16C0];
+    let clone_vids = [0x1A86, 0x0403, 0x067B];
+    
+    arduino_vids.contains(&vid) 
+        || esp_vids.contains(&vid)
+        || teensy_vids.contains(&vid)
+        || clone_vids.contains(&vid)
+}
+
+fn print_device_report(analysis: &DeviceAnalysis, verbose: bool) {
+    println!("\n{} Informacoes Basicas", "[OK]".green());
+    println!("  Bus: {} | Endereco: {}", analysis.bus, analysis.address);
+    println!("  VID: 0x{:04X} | PID: 0x{:04X}", analysis.passive.vid, analysis.passive.pid);
+    
+    if let Some(ref mfr) = analysis.passive.manufacturer {
+        println!("  Fabricante: {}", mfr);
+    }
+    if let Some(ref prod) = analysis.passive.product {
+        println!("  Produto: {}", prod);
+    }
+    
+    println!("\n{} Fingerprint Estrutural", "[OK]".green());
+    let hash_str: String = analysis.structural.fingerprint_hash.iter()
+        .take(16)
+        .map(|b| format!("{:02x}", b))
+        .collect();
+    println!("  Hash: {}...", hash_str);
+    println!("  Interfaces: {} | Endpoints: {}", 
+             analysis.structural.topology.num_interfaces,
+             analysis.structural.topology.endpoint_addresses.len());
+    
+    if let Some(ref hid) = analysis.hid {
+        println!("\n{} Interface HID Detectada", "[OK]".green());
+        if let Some(page) = hid.usage_page {
+            println!("  Usage Page: 0x{:04X}", page);
+        }
+        if let Some(usage) = hid.usage {
+            println!("  Usage: 0x{:04X}", usage);
+        }
+    }
+    
+    if let Some(ref cdc) = analysis.cdc {
+        println!("\n{} Interface CDC ACM Detectada", "[OK]".green());
+        println!("  SET_LINE_CODING: {}", if cdc.set_line_coding_success { "OK".green() } else { "FALHOU".red() });
+        println!("  GET_LINE_CODING: {}", if cdc.get_line_coding_success { "OK".green() } else { "FALHOU".red() });
+        println!("  Roundtrip: {}", if cdc.line_coding_roundtrip_valid { "Valido".green() } else { "Invalido".red() });
+    }
+    
+    println!("\n{} Analise de Timing", "[OK]".green());
+    println!("  Media: {} us", analysis.timing.repeated_read_stats.mean_us);
+    println!("  Desvio Padrao: {} us", analysis.timing.repeated_read_stats.std_dev_us);
+    println!("  Jitter: {} us", analysis.timing.repeated_read_stats.jitter_us);
+    
+    if let Some(ref stack) = analysis.stack.detected_stack {
+        println!("\n{} Stack USB Detectada", "[OK]".green());
+        println!("  Stack: {}", stack.as_str().bright_yellow());
+        println!("  Confianca: {:.1}%", analysis.stack.confidence * 100.0);
+    }
+    
+    println!("\n{} Pontuacao de Confianca", "[!]".yellow());
+    println!("  Passiva: {:.2}", analysis.confidence.passive_score);
+    println!("  Estrutural: {:.2}", analysis.confidence.structural_score);
+    println!("  HID: {:.2}", analysis.confidence.hid_score);
+    println!("  Ativa: {:.2}", analysis.confidence.active_score);
+    println!("  Stack: {:.2}", analysis.confidence.stack_score);
+    println!("  Protocolo: {:.2}", analysis.confidence.protocol_score);
+    
+    println!("\n{} Resultado Final", "[!]".bright_yellow());
+    println!("  Confianca Geral: {:.1}%", analysis.confidence.overall * 100.0);
+    
+    let (trust_text, trust_color) = match analysis.confidence.trust_level {
+        TrustLevel::Genuine => (analysis.confidence.trust_level.as_str(), "green"),
+        TrustLevel::BoardModified => (analysis.confidence.trust_level.as_str(), "yellow"),
+        TrustLevel::VidPidSpoofed => (analysis.confidence.trust_level.as_str(), "red"),
+        TrustLevel::DeepModification => (analysis.confidence.trust_level.as_str(), "red"),
+        TrustLevel::Unknown => (analysis.confidence.trust_level.as_str(), "red"),
+    };
+    
+    let colored_trust = match trust_color {
+        "green" => trust_text.green(),
+        "yellow" => trust_text.yellow(),
+        "red" => trust_text.red(),
+        _ => trust_text.white(),
+    };
+    
+    println!("  Nivel de Confianca: {}", colored_trust.bold());
+    println!("  Anomalias Detectadas: {}", analysis.confidence.anomaly_count);
+    
+    if verbose {
+        print_anomalies(analysis);
+    }
+}
+
+fn print_anomalies(analysis: &DeviceAnalysis) {
+    let mut all_anomalies = Vec::new();
+    
+    all_anomalies.extend(analysis.passive.anomalies.iter().cloned());
+    all_anomalies.extend(analysis.timing.anomalies.iter().cloned());
+    all_anomalies.extend(analysis.consistency.anomalies.iter().cloned());
+    all_anomalies.extend(analysis.invalid_request.anomalies.iter().cloned());
+    
+    if let Some(ref hid) = analysis.hid {
+        all_anomalies.extend(hid.anomalies.iter().cloned());
+    }
+    if let Some(ref cdc) = analysis.cdc {
+        all_anomalies.extend(cdc.anomalies.iter().cloned());
+    }
+    
+    if !all_anomalies.is_empty() {
+        println!("\n{} Anomalias Detectadas:", "[!]".red());
+        for (i, anomaly) in all_anomalies.iter().enumerate() {
+            println!("  {}. {}", i + 1, anomaly);
+        }
+    }
+}
+
+fn print_statistics(analyses: &[DeviceAnalysis]) {
+    println!("\n{}", "Estatisticas Gerais".bright_cyan().bold());
+    println!("{}", "-".repeat(80));
+    
+    let genuine = analyses.iter().filter(|a| matches!(a.confidence.trust_level, TrustLevel::Genuine)).count();
+    let modified = analyses.iter().filter(|a| matches!(a.confidence.trust_level, TrustLevel::BoardModified)).count();
+    let spoofed = analyses.iter().filter(|a| matches!(a.confidence.trust_level, TrustLevel::VidPidSpoofed)).count();
+    let deep_mod = analyses.iter().filter(|a| matches!(a.confidence.trust_level, TrustLevel::DeepModification)).count();
+    let unknown = analyses.iter().filter(|a| matches!(a.confidence.trust_level, TrustLevel::Unknown)).count();
+    
+    println!("Total de dispositivos analisados: {}", analyses.len());
+    println!("  {} Genuinos: {}", "[OK]".green(), genuine);
+    println!("  {} Modificados: {}", "[!]".yellow(), modified);
+    println!("  {} VID/PID Falsificado: {}", "[!]".red(), spoofed);
+    println!("  {} Modificacao Profunda: {}", "[!]".red(), deep_mod);
+    println!("  {} Desconhecidos: {}", "[!]".red(), unknown);
+    
+    let avg_confidence: f32 = analyses.iter().map(|a| a.confidence.overall).sum::<f32>() / analyses.len() as f32;
+    println!("\nConfianca media: {:.1}%", avg_confidence * 100.0);
+    
+    let total_anomalies: usize = analyses.iter().map(|a| a.confidence.anomaly_count).sum();
+    println!("Total de anomalias: {}", total_anomalies);
+}
+
+fn pause() {
+    print!("\nPressione Enter para sair...");
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+}
+
