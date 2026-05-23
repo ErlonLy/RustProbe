@@ -42,9 +42,12 @@ fn main() {
         }
     };
 
-    let analyzer = DeviceAnalyzer::new();
+    let mut analyzer = DeviceAnalyzer::new();
     let mut analyses = Vec::new();
     let mut total_devices = 0;
+    
+    info!("Banco de assinaturas: {} dispositivos conhecidos", analyzer.get_signature_count());
+    info!("Banco de perfis: {} perfis carregados", analyzer.get_profile_count());
 
     for device in devices.iter() {
         total_devices += 1;
@@ -71,6 +74,9 @@ fn main() {
             }
         }
     }
+    
+    // RIGOROUS CHECK: Detect duplicate VID:PID combinations (spoofing indicator)
+    detect_duplicate_vidpid(&mut analyses);
 
     println!();
     
@@ -134,6 +140,34 @@ fn print_device_report(analysis: &DeviceAnalysis, verbose: bool) {
     }
     if let Some(ref prod) = analysis.passive.product {
         println!("  Produto: {}", prod);
+    }
+    
+    // Show profile information
+    if let Some(ref profile) = analysis.confidence.matched_profile {
+        println!("\n{} Perfil Identificado", "[OK]".green());
+        println!("  Perfil: {}", profile.bright_yellow());
+    } else {
+        println!("\n{} Perfil nao identificado", "[!]".yellow());
+    }
+    
+    // Show signature information
+    if !analysis.signature_name.is_empty() && analysis.signature_name != "Unknown Device (VID:0x0000 PID:0x0000)" {
+        println!("\n{} Assinatura Conhecida", "[OK]".green());
+        println!("  Dispositivo: {}", analysis.signature_name.bright_yellow());
+        if analysis.is_known_device {
+            println!("  Visto anteriormente: {} vezes", analysis.seen_count);
+        }
+    } else {
+        println!("\n{} Assinatura nao encontrada no banco de dados", "[!]".yellow());
+    }
+    
+    // Check if it's a USB Hub
+    if let Some(ref profile) = analysis.confidence.matched_profile {
+        if profile == "USB Hub" {
+            println!("\n{} Dispositivo USB Hub Detectado", "[INFO]".bright_blue());
+            println!("  Este e um hub USB legitimo do sistema");
+            return;
+        }
     }
     
     println!("\n{} Fingerprint Estrutural", "[OK]".green());
@@ -201,7 +235,10 @@ fn print_device_report(analysis: &DeviceAnalysis, verbose: bool) {
     };
     
     println!("  Nivel de Confianca: {}", colored_trust.bold());
-    println!("  Anomalias Detectadas: {}", analysis.confidence.anomaly_count);
+    println!("  Anomalias Detectadas: {}", analysis.anomalies.len());
+    
+    // Always show anomalies with details
+    print_anomalies_detailed(analysis);
     
     if verbose {
         print_anomalies(analysis);
@@ -224,9 +261,40 @@ fn print_anomalies(analysis: &DeviceAnalysis) {
     }
     
     if !all_anomalies.is_empty() {
-        println!("\n{} Anomalias Detectadas:", "[!]".red());
+        println!("\n{} Anomalias Detectadas (Modo Verbose):", "[!]".red());
         for (i, anomaly) in all_anomalies.iter().enumerate() {
             println!("  {}. {}", i + 1, anomaly);
+        }
+    }
+}
+
+fn print_anomalies_detailed(analysis: &DeviceAnalysis) {
+    use RustProbe::core::AnomalySeverity;
+    
+    if analysis.anomalies.is_empty() {
+        println!("\n{} Nenhuma anomalia detectada", "[OK]".green());
+        return;
+    }
+    
+    println!("\n{} Detalhamento de Anomalias:", "[!]".yellow());
+    
+    for (i, anomaly) in analysis.anomalies.iter().enumerate() {
+        let severity_str = match anomaly.severity {
+            AnomalySeverity::Info => "[INFO]".bright_blue(),
+            AnomalySeverity::Low => "[BAIXA]".green(),
+            AnomalySeverity::Medium => "[MEDIA]".yellow(),
+            AnomalySeverity::High => "[ALTA]".red(),
+            AnomalySeverity::Critical => "[CRITICA]".bright_red().bold(),
+        };
+        
+        println!("  {}. {} [{}] {}", 
+                 i + 1, 
+                 severity_str,
+                 anomaly.layer.bright_cyan(),
+                 anomaly.description);
+        
+        if let Some(ref details) = anomaly.details {
+            println!("     Detalhes: {}", details.dimmed());
         }
     }
 }
@@ -253,6 +321,48 @@ fn print_statistics(analyses: &[DeviceAnalysis]) {
     
     let total_anomalies: usize = analyses.iter().map(|a| a.confidence.anomaly_count).sum();
     println!("Total de anomalias: {}", total_anomalies);
+}
+
+fn detect_duplicate_vidpid(analyses: &mut Vec<DeviceAnalysis>) {
+    use std::collections::HashMap;
+    use RustProbe::core::{Anomaly, AnomalyType, AnomalySeverity};
+    
+    // Group devices by VID:PID
+    let mut vidpid_map: HashMap<(u16, u16), Vec<usize>> = HashMap::new();
+    
+    for (idx, analysis) in analyses.iter().enumerate() {
+        let key = (analysis.passive.vid, analysis.passive.pid);
+        vidpid_map.entry(key).or_insert_with(Vec::new).push(idx);
+    }
+    
+    // Check for duplicates
+    for ((vid, pid), indices) in vidpid_map.iter() {
+        if indices.len() > 1 {
+            // Multiple devices with same VID:PID - HIGHLY SUSPICIOUS!
+            let anomaly = Anomaly::new(AnomalyType::DuplicateVidPid, "System")
+                .with_severity(AnomalySeverity::Critical)
+                .with_details(format!(
+                    "Múltiplos dispositivos ({}) com mesmo VID:PID (0x{:04X}:0x{:04X}) - Indicador forte de spoofing com flags de compilação",
+                    indices.len(), vid, pid
+                ));
+            
+            // Add anomaly to all devices with this VID:PID
+            for &idx in indices {
+                analyses[idx].anomalies.push(anomaly.clone());
+                
+                // Recalculate confidence with critical anomaly
+                let critical_penalty = 0.4; // 40% penalty for critical anomaly
+                analyses[idx].confidence.overall = (analyses[idx].confidence.overall - critical_penalty).max(0.0);
+                
+                // Downgrade trust level
+                if analyses[idx].confidence.overall < 0.5 {
+                    analyses[idx].confidence.trust_level = RustProbe::core::TrustLevel::VidPidSpoofed;
+                } else if analyses[idx].confidence.overall < 0.75 {
+                    analyses[idx].confidence.trust_level = RustProbe::core::TrustLevel::BoardModified;
+                }
+            }
+        }
+    }
 }
 
 fn pause() {

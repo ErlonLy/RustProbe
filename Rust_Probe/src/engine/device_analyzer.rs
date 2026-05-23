@@ -1,8 +1,8 @@
 use rusb::{Device, Context};
 use log::{info, debug, error};
-use crate::core::{ConfidenceScore, AnalysisError};
+use crate::core::{ConfidenceScore, AnalysisError, Anomaly};
 use crate::layers::*;
-use crate::engine::{ConfidenceEngine, LayerResults};
+use crate::engine::{ConfidenceEngine, LayerResults, SignatureDatabase, ProfileLoader};
 
 #[derive(Debug, Clone)]
 pub struct DeviceAnalysis {
@@ -19,20 +19,47 @@ pub struct DeviceAnalysis {
     pub stack: StackResult,
     pub protocol: ProtocolResult,
     pub confidence: ConfidenceScore,
+    pub anomalies: Vec<Anomaly>,
+    pub signature_name: String,
+    pub is_known_device: bool,
+    pub seen_count: u32,
+    pub matched_profile_brand: Option<String>,
 }
 
 pub struct DeviceAnalyzer {
     confidence_engine: ConfidenceEngine,
+    signature_db: SignatureDatabase,
+    profile_loader: ProfileLoader,
 }
 
 impl DeviceAnalyzer {
     pub fn new() -> Self {
+        let mut profile_loader = ProfileLoader::new();
+        
+        // Tentar carregar profiles.json
+        if let Err(e) = profile_loader.load_from_file("profiles/profiles.json") {
+            error!("Falha ao carregar profiles.json: {}", e);
+        }
+        
+        // Create confidence engine with profile loader for rigorous validation
+        let confidence_engine = ConfidenceEngine::new().with_profile_loader(profile_loader.clone());
+        
         Self {
-            confidence_engine: ConfidenceEngine::new(),
+            confidence_engine,
+            signature_db: SignatureDatabase::new("data/device_signatures.json"),
+            profile_loader,
         }
     }
     
-    pub fn analyze(&self, device: &Device<Context>) -> Result<DeviceAnalysis, AnalysisError> {
+    pub fn get_signature_count(&self) -> usize {
+        self.signature_db.count()
+    }
+    
+    pub fn get_profile_count(&self) -> usize {
+        self.profile_loader.count_profiles()
+    }
+    
+    pub fn analyze(&mut self, device: &Device<Context>) -> Result<DeviceAnalysis, AnalysisError> {
         let bus = device.bus_number();
         let address = device.address();
         
@@ -119,10 +146,48 @@ impl DeviceAnalyzer {
             protocol: protocol.clone(),
         };
         
-        let confidence = self.confidence_engine.calculate_confidence(&layer_results, false);
+        // Verificar se há perfil conhecido
+        let matched_profile_brand = self.profile_loader
+            .find_profile(passive.vid, passive.pid)
+            .map(|(brand, profile)| {
+                info!("Perfil encontrado: {} - {}", brand, profile.name);
+                brand.to_string()
+            });
         
-        info!("Analise concluida - Confianca: {:.2}, Nivel: {:?}", 
-              confidence.overall, confidence.trust_level);
+        let (confidence, anomalies) = self.confidence_engine.calculate_confidence(&layer_results, false);
+        
+        // Obter HID hash se disponível
+        let hid_hash = hid.as_ref().map(|h| {
+            use sha2::{Sha256, Digest};
+            let mut hasher = Sha256::new();
+            hasher.update(&h.report_descriptor);
+            hasher.finalize().to_vec()
+        });
+        
+        // Registrar ou atualizar assinatura do dispositivo
+        let signature_name = self.signature_db.find_or_create(
+            passive.vid,
+            passive.pid,
+            &structural.fingerprint_hash,
+            hid_hash.as_deref(),
+            passive.serial.clone(),
+            passive.manufacturer.clone(),
+            passive.product.clone(),
+            stack.detected_stack.as_ref().map(|s| s.as_str().to_string()),
+            confidence.overall,
+        );
+        
+        // Obter informações da assinatura para logging
+        let (is_known_device, seen_count) = self.signature_db.get_signature_info(
+            passive.vid,
+            passive.pid,
+            &structural.fingerprint_hash,
+            hid_hash.as_deref(),
+            passive.serial.as_deref(),
+        );
+        
+        info!("Analise concluida - Confianca: {:.2}, Nivel: {:?}, Anomalias: {}, Visto: {}x", 
+              confidence.overall, confidence.trust_level, anomalies.len(), seen_count);
         
         Ok(DeviceAnalysis {
             bus,
@@ -138,6 +203,11 @@ impl DeviceAnalyzer {
             stack,
             protocol,
             confidence,
+            anomalies,
+            signature_name,
+            is_known_device,
+            seen_count,
+            matched_profile_brand,
         })
     }
 }
