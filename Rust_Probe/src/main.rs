@@ -102,8 +102,8 @@ fn main() {
 
 fn print_header() {
     println!("{}", "╔════════════════════════════════════════════════════════════════════════════╗".bright_cyan());
-    println!("{}", "║     Sistema Avancado de Fingerprinting USB - Rust Probe v0.5.0           ║".bright_cyan());
-    println!("{}", "║     Detecao Multi-Camada de Spoofing e Autenticidade                     ║".bright_cyan());
+    println!("{}", "║     Sistema Avancado de Fingerprinting USB - Rust Probe v0.5.0             ║".bright_cyan());
+    println!("{}", "║           Detecao Multi-Camada de Spoofing e Autenticidade                 ║".bright_cyan());
     println!("{}", "╚════════════════════════════════════════════════════════════════════════════╝".bright_cyan());
     println!();
 }
