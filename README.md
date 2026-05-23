@@ -124,16 +124,65 @@ Analise Profunda (Estilo Anti-Cheat):
 ## Estrutura do Projeto
 
 ```
-Rust_Probe/
-├── src/
-│   ├── main.rs                 # Ponto de entrada
-│   ├── device_analyzer.rs      # Lógica de análise profunda
-│   ├── device_database.rs      # Base de dados de VID/PID
-│   ├── trust_evaluator.rs      # Sistema de avaliação de confiança
-│   └── report_generator.rs     # Geração de relatórios
-├── Cargo.toml
-└── README.md
+RustProbe/
+│
+├── Rust_Probe/                         # Diretório Principal do Projeto
+│   │
+│   ├── src/                            # Código Fonte
+│   │   │
+│   │   ├── core/                       # Módulo Core - Fundação do Sistema
+│   │   │   ├── mod.rs                  # Exportações do módulo
+│   │   │   ├── types.rs                # Tipos fundamentais (TrustLevel, USBStack, TopologyData)
+│   │   │   ├── errors.rs               # Sistema de erros (LayerError, AnalysisError)
+│   │   │   ├── fingerprint.rs          # Estruturas de fingerprint USB
+│   │   │   ├── timing.rs               # Perfis e estatísticas de timing
+│   │   │   └── profile.rs              # Perfis de dispositivos e whitelist
+│   │   │
+│   │   ├── layers/                     # Módulo Layers - 12 Camadas de Análise
+│   │   │   ├── mod.rs                  # Exportações do módulo
+│   │   │   ├── passive_descriptor.rs   # Camada 1: Validação Passiva (15%)
+│   │   │   ├── structural_fingerprint.rs # Camada 2: Fingerprint Estrutural (25%)
+│   │   │   ├── hid_fingerprint.rs      # Camada 3: Fingerprint HID (30%)
+│   │   │   ├── cdc_challenge.rs        # Camada 4: Desafio CDC ACM (15%)
+│   │   │   ├── invalid_request.rs      # Camada 5: Requisições Inválidas (5%)
+│   │   │   ├── timing_analysis.rs      # Camada 6: Análise de Timing (10%)
+│   │   │   ├── descriptor_consistency.rs # Camada 7: Consistência (5%)
+│   │   │   ├── bootloader_verification.rs # Camada 8: Bootloader (10%)
+│   │   │   ├── stack_fingerprint.rs    # Camada 9: Stack USB (15%)
+│   │   │   └── protocol_probe.rs       # Camada 10: Protocolo (5%)
+│   │   │
+│   │   ├── engine/                     # Módulo Engine - Motor de Análise
+│   │   │   ├── mod.rs                  # Exportações do módulo
+│   │   │   ├── confidence_engine.rs    # Cálculo de pontuação ponderada
+│   │   │   ├── device_analyzer.rs      # Orquestrador de análise (executa todas as camadas)
+│   │   │   ├── profile_database.rs     # Banco de perfis com cache LRU
+│   │   │   └── whitelist.rs            # Sistema de whitelist
+│   │   │
+│   │   ├── lib.rs                      # Biblioteca - Exporta módulos públicos
+│   │   └── main.rs                     # CLI - Interface de linha de comando
+│   │
+│   ├── Cargo.toml                      # Configuração e dependências
+│   └── Cargo.lock                      # Lock de versões
+│
+├── .git/                               # Controle de versão Git
+├── .gitignore                          # Arquivos ignorados pelo Git
+├── LICENSE                             # Licença do projeto
+└── README.md                           # Este arquivo
 ```
+
+### Organização por Responsabilidade
+
+#### Core (Fundação)
+Tipos de dados, estruturas, erros e perfis compartilhados por todo o sistema.
+
+#### Layers (Análise Independente)
+Cada camada analisa um aspecto diferente do dispositivo USB. Falhas em uma camada não afetam as outras (graceful degradation).
+
+#### Engine (Inteligência Central)
+Orquestra a execução das camadas, calcula pontuação de confiança ponderada, gerencia perfis e whitelist.
+
+#### Interface (Usuário)
+CLI com output colorido, estatísticas detalhadas e modos debug/verbose.
 
 ## Detecção de ESP32-S3
 
@@ -178,8 +227,27 @@ Este projeto está sob a licença MIT. Veja o arquivo LICENSE para mais detalhes
 
 Esta ferramenta é destinada apenas para fins educacionais e de segurança. O uso para fins maliciosos ou não autorizados é estritamente proibido. Os desenvolvedores não se responsabilizam pelo uso indevido desta ferramenta.
 
-## Roadmap
+## Roadmap Update
 
+### Implementado (v0.5.0)
+- [x] Sistema de 12 camadas de análise
+- [x] Fingerprinting criptográfico (SHA-256)
+- [x] Análise de timing com estatísticas
+- [x] Detecção de Stack USB (LUFA, TinyUSB, ESP-IDF)
+- [x] Sistema de pontuação ponderada
+- [x] Graceful degradation (camadas independentes)
+- [x] Logging estruturado
+- [x] Output colorido e estatísticas
+- [x] Redução de falsos positivos (≥3 anomalias)
+
+### Em Desenvolvimento
+- [ ] Bancos de dados JSON (perfis e whitelist)
+- [ ] Execução paralela de camadas (rayon)
+- [ ] Implementação completa de bootloader verification
+- [ ] Implementação completa de protocol probes
+- [ ] Testes baseados em propriedades (proptest)
+
+### Planejado
 - [ ] Suporte para Raspberry Pi Pico
 - [ ] Detecção de BadUSB
 - [ ] Análise de tráfego USB em tempo real
@@ -189,6 +257,7 @@ Esta ferramenta é destinada apenas para fins educacionais e de segurança. O us
 - [ ] Integração com sistemas anti-cheat existentes
 - [ ] Detecção de DMA (Direct Memory Access) devices
 - [ ] Análise de latência de resposta USB
+- [ ] Machine Learning para detecção de anomalias
 
 ## Troubleshooting
 
