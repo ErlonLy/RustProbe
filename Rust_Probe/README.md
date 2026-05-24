@@ -143,26 +143,6 @@ Binario gerado:
 - [tests/golden/lufa_clone.json](tests/golden/lufa_clone.json)
 - [tests/golden/esp32_cdc_disabled.json](tests/golden/esp32_cdc_disabled.json)
 
-## Release v1.0
-
-Fluxo recomendado:
-
-```bash
-git add .
-git commit -m "docs: adiciona README completo para v1.0.0"
-git tag -a v1.0 -m "RustProbe v1.0"
-git push origin main --tags
-```
-
-Se tiver GitHub CLI autenticado:
-
-```bash
-gh release create v1.0 \
-  --title "RustProbe v1.0" \
-  --notes "Primeira release estavel com pipeline forense multi-camada." \
-  target/release/RustProbe.exe
-```
-
 ## Aviso de uso
 
 Projeto para auditoria, validacao e pesquisa de seguranca de dispositivos USB. Use apenas em ambientes autorizados.
