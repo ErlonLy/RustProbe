@@ -24,6 +24,7 @@ pub struct DeviceAnalysis {
     pub is_known_device: bool,
     pub seen_count: u32,
     pub matched_profile_brand: Option<String>,
+    pub matched_profile_name: Option<String>,
     pub identity_analysis: Option<IdentityAnalysis>,
 }
 
@@ -164,12 +165,13 @@ impl DeviceAnalyzer {
         };
         
         // Verificar se há perfil conhecido
-        let matched_profile_brand = self.profile_loader
+        let (matched_profile_brand, matched_profile_name) = self.profile_loader
             .find_profile(passive.vid, passive.pid)
             .map(|(brand, profile)| {
                 info!("Perfil encontrado: {} - {}", brand, profile.name);
-                brand.to_string()
-            });
+                (Some(brand.to_string()), Some(profile.name.clone()))
+            })
+            .unwrap_or((None, None));
         
         let (confidence, anomalies) = self.confidence_engine.calculate_confidence(&layer_results, false);
         
@@ -235,6 +237,7 @@ impl DeviceAnalyzer {
             is_known_device,
             seen_count,
             matched_profile_brand,
+            matched_profile_name,
             identity_analysis: Some(identity_analysis),
         })
     }

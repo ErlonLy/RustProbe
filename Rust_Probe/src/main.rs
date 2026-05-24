@@ -183,9 +183,12 @@ fn print_device_report(analysis: &DeviceAnalysis, verbose: bool) {
     }
     
     // Show profile information
-    if let Some(ref profile) = analysis.confidence.matched_profile {
+    if let Some(ref profile_name) = analysis.matched_profile_name {
         println!("\n{} Perfil Identificado", "[OK]".green());
-        println!("  Perfil: {}", profile.bright_yellow());
+        println!("  Dispositivo: {}", profile_name.bright_yellow());
+        if let Some(ref brand) = analysis.matched_profile_brand {
+            println!("  Marca: {}", brand.bright_cyan());
+        }
     } else {
         println!("\n{} Perfil nao identificado", "[!]".yellow());
     }
