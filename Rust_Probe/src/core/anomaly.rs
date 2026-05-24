@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AnomalyType {
-    // Passive Descriptor Anomalies
+    
     MissingManufacturer,
     MissingProduct,
     MissingSerial,
@@ -10,36 +10,40 @@ pub enum AnomalyType {
     SuspiciousVidPid,
     DuplicateVidPid,
     
-    // Structural Anomalies
+    
     UnusualInterfaceCount,
     SuspiciousInterfaceCombination,
     AnomalousEndpointConfig,
     SimplifiedStructure,
     
-    // HID Anomalies
+    
     InvalidUsagePage,
     SuspiciousPollingRate,
     UnexpectedReportDescriptor,
     
-    // CDC Anomalies
+    
     LineCodingFailed,
     RoundtripMismatch,
     UnexpectedResponse,
     
-    // Timing Anomalies
+    
     HighJitter,
     InconsistentTiming,
     EmulationPattern,
+    SuspiciousTimingCoherence,
     
-    // Stack Anomalies
+    
     UnknownStack,
     StackMismatch,
+    SuspiciousDescriptorOrdering,
     
-    // Bootloader Anomalies
+    
     DevelopmentBootloader,
     ModifiedBootloader,
+    SuspiciousIdentityString,
+    DescriptorEntropyAnomaly,
     
-    // USB Hub (Not an anomaly, just informational)
+    
     UsbHubDevice,
 }
 
@@ -65,10 +69,14 @@ impl AnomalyType {
             AnomalyType::HighJitter => "Jitter de timing elevado",
             AnomalyType::InconsistentTiming => "Timing inconsistente",
             AnomalyType::EmulationPattern => "Padrao de emulacao detectado",
+            AnomalyType::SuspiciousTimingCoherence => "Coerencia temporal suspeita",
             AnomalyType::UnknownStack => "Stack USB desconhecida",
             AnomalyType::StackMismatch => "Stack nao corresponde ao esperado",
+            AnomalyType::SuspiciousDescriptorOrdering => "Ordenacao de descritores suspeita",
             AnomalyType::DevelopmentBootloader => "Bootloader de desenvolvimento detectado",
             AnomalyType::ModifiedBootloader => "Bootloader modificado",
+            AnomalyType::SuspiciousIdentityString => "Strings de identidade suspeitas",
+            AnomalyType::DescriptorEntropyAnomaly => "Entropia de descritor anomala",
             AnomalyType::UsbHubDevice => "Dispositivo USB Hub",
         }
     }
@@ -94,10 +102,14 @@ impl AnomalyType {
             AnomalyType::HighJitter => AnomalySeverity::Medium,
             AnomalyType::InconsistentTiming => AnomalySeverity::High,
             AnomalyType::EmulationPattern => AnomalySeverity::Critical,
+            AnomalyType::SuspiciousTimingCoherence => AnomalySeverity::Medium,
             AnomalyType::UnknownStack => AnomalySeverity::Low,
             AnomalyType::StackMismatch => AnomalySeverity::Medium,
+            AnomalyType::SuspiciousDescriptorOrdering => AnomalySeverity::High,
             AnomalyType::DevelopmentBootloader => AnomalySeverity::High,
             AnomalyType::ModifiedBootloader => AnomalySeverity::Critical,
+            AnomalyType::SuspiciousIdentityString => AnomalySeverity::Medium,
+            AnomalyType::DescriptorEntropyAnomaly => AnomalySeverity::Medium,
             AnomalyType::UsbHubDevice => AnomalySeverity::Info,
         }
     }
@@ -105,11 +117,11 @@ impl AnomalyType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnomalySeverity {
-    Info,      // Informational only
-    Low,       // Minor issue, likely benign
-    Medium,    // Moderate concern
-    High,      // Significant concern
-    Critical,  // Strong indicator of spoofing/modification
+    Info,      
+    Low,       
+    Medium,    
+    High,      
+    Critical,  
 }
 
 impl AnomalySeverity {

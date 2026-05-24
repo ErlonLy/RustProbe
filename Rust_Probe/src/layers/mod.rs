@@ -8,6 +8,7 @@ pub mod descriptor_consistency;
 pub mod bootloader_verification;
 pub mod stack_fingerprint;
 pub mod protocol_probe;
+pub mod descriptor_ordering;
 
 pub use passive_descriptor::*;
 pub use structural_fingerprint::*;
@@ -19,3 +20,4 @@ pub use descriptor_consistency::*;
 pub use bootloader_verification::*;
 pub use stack_fingerprint::*;
 pub use protocol_probe::*;
+pub use descriptor_ordering::*;

@@ -58,14 +58,14 @@ impl ProfileLoader {
     pub fn load_from_file(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let file_path = Path::new(path);
         
-        // Try to load from file first
+        
         let contents = if file_path.exists() {
             let mut file = File::open(file_path)?;
             let mut contents = String::new();
             file.read_to_string(&mut contents)?;
             contents
         } else {
-            // Fallback to embedded profiles
+            
             warn!("Arquivo de perfis não encontrado: {}, usando perfis embutidos", path);
             include_str!("../../profiles/profiles.json").to_string()
         };
@@ -137,19 +137,19 @@ mod tests {
     fn test_profile_entry_parsing() {
         let entry = DeviceProfileEntry {
             name: "Test Device".to_string(),
-            vid: "0x046D".to_string(),
-            pid: "0xC08B".to_string(),
-            vendor: "Logitech".to_string(),
-            product: Some("G502".to_string()),
+            vid: "0x1234".to_string(),
+            pid: "0x5678".to_string(),
+            vendor: "GenericVendor".to_string(),
+            product: Some("GenericMouse".to_string()),
             description: None,
             manufacturer: None,
             usb_product: None,
             usb_manufacturer: None,
         };
         
-        assert_eq!(entry.vid_u16(), Some(0x046D));
-        assert_eq!(entry.pid_u16(), Some(0xC08B));
-        assert!(entry.matches(0x046D, 0xC08B));
-        assert!(!entry.matches(0x046D, 0xC08C));
+        assert_eq!(entry.vid_u16(), Some(0x1234));
+        assert_eq!(entry.pid_u16(), Some(0x5678));
+        assert!(entry.matches(0x1234, 0x5678));
+        assert!(!entry.matches(0x1234, 0x5679));
     }
 }

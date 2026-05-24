@@ -112,43 +112,99 @@ impl StructuralFingerprintAnalyzer {
     fn generate_fingerprint(&self, topology: &TopologyData) -> [u8; 32] {
         let mut hasher = Sha256::new();
         
+        
         hasher.update(&[topology.num_interfaces]);
+        
         
         for &class in &topology.interface_classes {
             hasher.update(&[class]);
         }
         
+        
         for &addr in &topology.endpoint_addresses {
             hasher.update(&[addr]);
         }
+        
+        
+        let endpoint_entropy = self.calculate_endpoint_entropy(&topology.endpoint_addresses);
+        hasher.update(&endpoint_entropy.to_le_bytes());
+        
         
         for &ep_type in &topology.endpoint_types {
             hasher.update(&[ep_type]);
         }
         
+        
         for &dir in &topology.endpoint_directions {
             hasher.update(&[dir]);
         }
+        
         
         for &size in &topology.endpoint_max_packet_sizes {
             hasher.update(&size.to_le_bytes());
         }
         
+        
         for &interval in &topology.endpoint_intervals {
             hasher.update(&[interval]);
         }
         
+        
         hasher.update(&[if topology.has_iad { 1 } else { 0 }]);
+        
         
         if !topology.cdc_functional_descriptors.is_empty() {
             hasher.update(&[topology.cdc_functional_descriptors.len() as u8]);
             hasher.update(&topology.cdc_functional_descriptors);
         }
         
+        
+        let class_matrix = self.build_class_matrix(topology);
+        hasher.update(&class_matrix);
+        
         let result = hasher.finalize();
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);
         hash
+    }
+    
+    
+    fn calculate_endpoint_entropy(&self, endpoints: &[u8]) -> f32 {
+        if endpoints.is_empty() {
+            return 0.0;
+        }
+        
+        let mut sorted = endpoints.to_vec();
+        sorted.sort();
+        
+        let mut gaps = 0;
+        for i in 1..sorted.len() {
+            let diff = sorted[i].saturating_sub(sorted[i-1]);
+            if diff > 1 {
+                gaps += (diff - 1) as usize;
+            }
+        }
+        
+        
+        gaps as f32 / endpoints.len() as f32
+    }
+    
+    
+    fn build_class_matrix(&self, topology: &TopologyData) -> Vec<u8> {
+        let mut matrix = Vec::new();
+        
+        
+        for &class in &topology.interface_classes {
+            matrix.push(class);
+        }
+        
+        
+        matrix.push(topology.num_interfaces);
+        
+        
+        matrix.push(topology.endpoint_addresses.len() as u8);
+        
+        matrix
     }
 }
 

@@ -55,12 +55,12 @@ impl DeviceScanner {
         let vid = desc.vendor_id();
         let pid = desc.product_id();
 
-        // Check known development boards
+        
         if is_development_board(vid, pid) {
             return true;
         }
 
-        // Deep inspection for disguised devices
+        
         let mut has_hid = false;
         let mut has_cdc = false;
         let mut has_vendor_specific = false;
@@ -79,17 +79,17 @@ impl DeviceScanner {
             }
         }
 
-        // Suspicious combination: HID + CDC (common in Arduino emulators)
+        
         if has_hid && has_cdc {
             return true;
         }
 
-        // Vendor-specific class with CDC (ESP32 pattern)
+        
         if has_vendor_specific && has_cdc {
             return true;
         }
 
-        // Single CDC without known VID (potential disguised Arduino)
+        
         if has_cdc && !self.is_legitimate_peripheral(vid, desc) {
             return true;
         }
@@ -98,30 +98,13 @@ impl DeviceScanner {
     }
 
     fn is_legitimate_peripheral(&self, vid: u16, desc: &DeviceDescriptor) -> bool {
-        // List of legitimate peripheral manufacturers to reduce false positives
-        let legitimate_vids = [
-            0x046D, // Logitech
-            0x045E, // Microsoft
-            0x1532, // Razer
-            0x0B05, // ASUS
-            0x1B1C, // Corsair
-            0x0951, // Kingston
-            0x04D9, // Holtek (keyboards/mice)
-            0x258A, // Gaming peripherals
-            0x3151, // Gaming peripherals
-        ];
-
-        if legitimate_vids.contains(&vid) {
-            return true;
-        }
-
-        // Check if device has typical peripheral characteristics
+        let _ = vid;
         let class = desc.class_code();
         let subclass = desc.sub_class_code();
         
-        // Legitimate HID devices typically have class 0x00 at device level
+        
         if class == 0x00 && subclass == 0x00 {
-            // This is a common pattern for legitimate peripherals
+            
             return false;
         }
 
@@ -138,10 +121,10 @@ impl DeviceScanner {
 
         let (manufacturer, product, serial) = self.read_device_strings(device, desc, &mut flags, &mut confidence);
 
-        // Run Vanguard-style deep checks
+        
         self.detect_vanguard_anomalies(device, desc, &serial, &manufacturer, &product, &mut flags, &mut confidence);
         
-        // ESP32-S3 specific detection
+        
         self.detect_esp32_patterns(device, desc, &product, &mut flags, &mut confidence);
 
         let mut trust_level = self.determine_trust_level(
@@ -156,7 +139,7 @@ impl DeviceScanner {
             &mut confidence,
         );
 
-        // Adjust trust level based on anti-cheat rules for spoofed devices
+        
         let mut has_hid = false;
         let mut has_cdc = false;
         if let Ok(config_desc) = device.active_config_descriptor() {
@@ -172,16 +155,16 @@ impl DeviceScanner {
             }
         }
 
-        // Advanced spoofing detection with false positive reduction
+        
         if !is_development_board(vid, pid) {
             if has_hid && has_cdc {
-                // Strong indicator of Arduino emulator
+                
                 trust_level = TrustLevel::VidPidSpoofed;
             } else if !flags.is_empty() && confidence < 0.6 {
-                // Multiple anomalies with low confidence
+                
                 trust_level = TrustLevel::VidPidSpoofed;
             } else if flags.len() >= 3 {
-                // Three or more red flags
+                
                 trust_level = TrustLevel::VidPidSpoofed;
             }
         }
@@ -263,7 +246,7 @@ impl DeviceScanner {
         let vid = desc.vendor_id();
         let pid = desc.product_id();
 
-        // ESP32-S3 specific detection
+        
         if is_esp32_vid(vid) || is_esp32_pid(pid) {
             flags.push("Placa de desenvolvimento ESP32 detectada".to_string());
             
@@ -282,7 +265,7 @@ impl DeviceScanner {
                 }
             }
 
-            // Check for dual USB configuration (ESP32-S3 feature)
+            
             if let Ok(config_desc) = device.active_config_descriptor() {
                 let interface_count = config_desc.num_interfaces();
                 if interface_count >= 2 {
@@ -292,7 +275,7 @@ impl DeviceScanner {
             }
         }
 
-        // Check for ESP32 with clone USB-Serial chips
+        
         if (vid == 0x10C4 || vid == 0x1A86) && !is_esp32_pid(pid) {
             if let Some(ref prod) = product {
                 let prod_lower = prod.to_lowercase();
@@ -334,19 +317,19 @@ impl DeviceScanner {
             }
         }
 
-        // 1. CDC ACM + HID Coexistence
+        
         if has_hid && has_cdc {
             flags.push("Coexistência suspeita: Interface serial (CDC) e interface HID no mesmo dispositivo (característica de emuladores)".to_string());
             *confidence *= 0.35;
         }
 
-        // 2. Interface count verification
+        
         if has_hid && interface_count >= 3 && !is_known_vid(vid) {
             flags.push(format!("Quantidade suspeita de interfaces para periférico HID padrão ({} interfaces)", interface_count));
             *confidence *= 0.8;
         }
 
-        // 3. bcdDevice signature check
+        
         let dev_ver_raw = desc.device_version();
         let bcd_device = ((dev_ver_raw.0 as u16) << 8) | (dev_ver_raw.1 as u16);
         if has_hid && (bcd_device == 0x0100 || bcd_device == 0x0287 || bcd_device == 0x0200) && !is_known_vid(vid) {
@@ -354,7 +337,7 @@ impl DeviceScanner {
             *confidence *= 0.75;
         }
 
-        // 4. Polling rate check
+        
         let mut slow_polling = false;
         let mut max_binterval = 0;
         if let Ok(config_desc) = device.active_config_descriptor() {
@@ -382,7 +365,7 @@ impl DeviceScanner {
             *confidence *= 0.8;
         }
 
-        // 5. Serial number signature check
+        
         if let Some(ref ser) = serial {
             let ser_lower = ser.to_lowercase();
             let suspicious_keywords = ["arduino", "leonardo", "teensy", "pico", "rp2", "esp32", "esp8266", "atmega"];
@@ -402,7 +385,7 @@ impl DeviceScanner {
             }
         }
 
-        // 6. Manufacturer string analysis
+        
         if let Some(ref mfg) = manufacturer {
             let mfg_lower = mfg.to_lowercase();
             let dev_keywords = ["arduino", "espressif", "teensy", "pjrc", "adafruit", "sparkfun", "seeed"];
@@ -416,7 +399,7 @@ impl DeviceScanner {
             }
         }
 
-        // 7. Product string analysis for hidden boards
+        
         if let Some(ref prod) = product {
             let prod_lower = prod.to_lowercase();
             let board_keywords = ["arduino", "esp32", "esp8266", "teensy", "leonardo", "uno", "mega", "nano"];
@@ -430,7 +413,7 @@ impl DeviceScanner {
             }
         }
 
-        // 8. Memory descriptor analysis (advanced anti-cheat technique)
+        
         self.analyze_memory_descriptors(device, flags, confidence);
     }
 
@@ -737,11 +720,11 @@ impl DeviceScanner {
         flags: &mut Vec<String>,
         confidence: &mut f32,
     ) {
-        // Advanced anti-cheat technique: analyze descriptor memory patterns
+        
         if let Ok(handle) = device.open() {
             let timeout = Duration::from_millis(50);
             
-            // Try to read configuration descriptor multiple times
+            
             let mut read_times = Vec::new();
             for _ in 0..3 {
                 let start = Instant::now();
@@ -749,7 +732,7 @@ impl DeviceScanner {
                 read_times.push(start.elapsed().as_micros());
             }
 
-            // Check for timing consistency (real hardware is consistent)
+            
             if read_times.len() >= 3 {
                 let avg = read_times.iter().sum::<u128>() / read_times.len() as u128;
                 let variance: u128 = read_times.iter()
@@ -759,7 +742,7 @@ impl DeviceScanner {
                     })
                     .sum::<u128>() / read_times.len() as u128;
 
-                // High variance indicates emulation
+                
                 if variance > 10000 {
                     flags.push("Variação de timing alta detectada (possível emulação de hardware)".to_string());
                     *confidence *= 0.7;

@@ -1,0 +1,37 @@
+{
+  "name": "esp32_cdc_disabled",
+  "claimed": {
+    "vid": 3034,
+    "pid": 32832,
+    "manufacturer": "Espressif",
+    "product": "ESP32S3 HID",
+    "serial": null,
+    "device_class": 3,
+    "device_subclass": 0,
+    "device_protocol": 0
+  },
+  "observed": {
+    "num_interfaces": 2,
+    "num_endpoints": 2,
+    "endpoint_addresses": [129, 130],
+    "endpoint_packet_sizes": [8, 8],
+    "endpoint_intervals": [1, 1],
+    "hid_report_descriptor_hash": null,
+    "hid_report_descriptor_size": 42,
+    "hid_usage_page": 1,
+    "hid_usage": 2,
+    "hid_polling_interval": 1,
+    "detected_stack": "TinyUSB",
+    "stack_confidence": 0.76,
+    "enumeration_timing_us": 170,
+    "descriptor_read_jitter_us": 900,
+    "control_response_avg_us": 100,
+    "has_cdc_remnants": true,
+    "has_interface_gaps": true,
+    "has_endpoint_gaps": false,
+    "descriptor_ordering_anomaly": false
+  },
+  "expected": {
+    "spoofed": true
+  }
+}

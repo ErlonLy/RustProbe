@@ -55,7 +55,7 @@ impl SignatureDatabase {
         
         let path = Path::new(&self.database_path);
         
-        // Criar diretório se não existir
+        
         if let Some(parent) = path.parent() {
             create_dir_all(parent)?;
         }
@@ -83,7 +83,7 @@ impl SignatureDatabase {
         detected_stack: Option<String>,
         confidence: f32,
     ) -> String {
-        // Procurar assinatura existente
+        
         for sig in self.signatures.values_mut() {
             if sig.matches(vid, pid, structural_hash, hid_hash, serial_number.as_deref()) {
                 sig.update(confidence);
@@ -95,7 +95,7 @@ impl SignatureDatabase {
             }
         }
         
-        // Criar nova assinatura
+        
         let new_sig = DeviceSignature::new(
             vid,
             pid,
@@ -191,38 +191,40 @@ mod tests {
         
         let structural = vec![0x01, 0x02, 0x03, 0x04];
         
-        let sig1 = db.find_or_create(
-            0x046D,
-            0xC08B,
+        let _sig1_name = db.find_or_create(
+            0x1234,
+            0x5678,
             &structural,
             None,
             Some("12345".to_string()),
-            Some("Logitech".to_string()),
-            Some("G502".to_string()),
+            Some("GenericVendor".to_string()),
+            Some("GenericMouse".to_string()),
             None,
             0.95,
         );
         
-        assert_eq!(sig1.seen_count, 1);
+        assert_eq!(db.count(), 1);
         
-        let sig2 = db.find_or_create(
-            0x046D,
-            0xC08B,
+        let _sig2_name = db.find_or_create(
+            0x1234,
+            0x5678,
             &structural,
             None,
             Some("12345".to_string()),
-            Some("Logitech".to_string()),
-            Some("G502".to_string()),
+            Some("GenericVendor".to_string()),
+            Some("GenericMouse".to_string()),
             None,
             1.0,
         );
         
-        assert_eq!(sig2.seen_count, 2);
+        let info = db.get_signature_info(0x1234, 0x5678, &structural, None, Some("12345"));
+        assert!(info.0);
+        assert_eq!(info.1, 2);
         assert_eq!(db.count(), 1);
         
         db.save().unwrap();
         
-        // Cleanup
+        
         let _ = remove_file(db_path);
     }
 }

@@ -1,0 +1,37 @@
+{
+  "name": "generic_lufa_clone",
+  "claimed": {
+    "vid": 5426,
+    "pid": 103,
+    "manufacturer": "Generic Peripheral",
+    "product": "Generic Wired Mouse",
+    "serial": null,
+    "device_class": 3,
+    "device_subclass": 0,
+    "device_protocol": 0
+  },
+  "observed": {
+    "num_interfaces": 1,
+    "num_endpoints": 1,
+    "endpoint_addresses": [129],
+    "endpoint_packet_sizes": [8],
+    "endpoint_intervals": [1],
+    "hid_report_descriptor_hash": null,
+    "hid_report_descriptor_size": 24,
+    "hid_usage_page": 1,
+    "hid_usage": 2,
+    "hid_polling_interval": 1,
+    "detected_stack": "LUFA",
+    "stack_confidence": 0.8,
+    "enumeration_timing_us": 90,
+    "descriptor_read_jitter_us": 600,
+    "control_response_avg_us": 80,
+    "has_cdc_remnants": false,
+    "has_interface_gaps": false,
+    "has_endpoint_gaps": true,
+    "descriptor_ordering_anomaly": true
+  },
+  "expected": {
+    "spoofed": true
+  }
+}

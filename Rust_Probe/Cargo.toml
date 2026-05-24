@@ -1,7 +1,10 @@
 [package]
 name = "RustProbe"
-version = "0.5.0"
+version = "1.0.0"
 edition = "2021"
+
+[lib]
+name = "rust_probe"
 
 [dependencies]
 rusb = "0.9"
@@ -14,6 +17,7 @@ env_logger = "0.11"
 lru = "0.12"
 clap = { version = "4.5", features = ["derive"] }
 rayon = "1.10"
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 proptest = "1.4"

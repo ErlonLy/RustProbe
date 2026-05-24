@@ -2,44 +2,44 @@ use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Assinatura persistente de um dispositivo USB
-/// Combina múltiplos fatores para criar uma identificação única
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceSignature {
-    /// Hash SHA-256 da assinatura completa
+    
     pub signature_hash: String,
     
-    /// VID:PID do dispositivo
+    
     pub vid_pid: String,
     
-    /// Hash do fingerprint estrutural
+    
     pub structural_hash: String,
     
-    /// Hash do fingerprint HID (se disponível)
+    
     pub hid_hash: Option<String>,
     
-    /// Número de série (se disponível)
+    
     pub serial_number: Option<String>,
     
-    /// Fabricante
+    
     pub manufacturer: Option<String>,
     
-    /// Produto
+    
     pub product: Option<String>,
     
-    /// Timestamp da primeira detecção
+    
     pub first_seen: u64,
     
-    /// Timestamp da última detecção
+    
     pub last_seen: u64,
     
-    /// Contador de vezes que foi visto
+    
     pub seen_count: u32,
     
-    /// Nível de confiança histórico médio
+    
     pub avg_confidence: f32,
     
-    /// Stack USB detectada
+    
     pub detected_stack: Option<String>,
 }
 
@@ -59,7 +59,7 @@ impl DeviceSignature {
         let structural_hash_str = hex_encode(structural_hash);
         let hid_hash_str = hid_hash.map(hex_encode);
         
-        // Criar hash da assinatura completa
+        
         let signature_hash = Self::calculate_signature_hash(
             &vid_pid,
             &structural_hash_str,
@@ -118,7 +118,7 @@ impl DeviceSignature {
         self.last_seen = now;
         self.seen_count += 1;
         
-        // Atualizar média de confiança
+        
         self.avg_confidence = (self.avg_confidence * (self.seen_count - 1) as f32 + confidence) 
             / self.seen_count as f32;
     }
@@ -142,7 +142,7 @@ impl DeviceSignature {
             return false;
         }
         
-        // Se temos HID hash, deve corresponder
+        
         if let (Some(stored_hid), Some(device_hid)) = (&self.hid_hash, hid_hash) {
             let device_hid_str = hex_encode(device_hid);
             if stored_hid != &device_hid_str {
@@ -150,7 +150,7 @@ impl DeviceSignature {
             }
         }
         
-        // Se temos número de série, deve corresponder
+        
         if let (Some(stored_serial), Some(device_serial)) = (&self.serial_number, serial_number) {
             if stored_serial != device_serial {
                 return false;
@@ -161,9 +161,9 @@ impl DeviceSignature {
     }
     
     pub fn is_trusted(&self) -> bool {
-        // Dispositivo é confiável se:
-        // 1. Foi visto múltiplas vezes
-        // 2. Tem confiança média alta
+        
+        
+        
         self.seen_count >= 3 && self.avg_confidence >= 0.85
     }
     
@@ -173,7 +173,7 @@ impl DeviceSignature {
             .unwrap()
             .as_secs();
         
-        (now - self.first_seen) / 86400 // segundos em um dia
+        (now - self.first_seen) / 86400 
     }
 }
 
@@ -191,18 +191,18 @@ mod tests {
     fn test_device_signature_creation() {
         let structural = vec![0x01, 0x02, 0x03, 0x04];
         let sig = DeviceSignature::new(
-            0x046D,
-            0xC08B,
+            0x1234,
+            0x5678,
             &structural,
             None,
             Some("12345".to_string()),
-            Some("Logitech".to_string()),
-            Some("G502".to_string()),
+            Some("GenericVendor".to_string()),
+            Some("GenericMouse".to_string()),
             Some("TinyUSB".to_string()),
             0.95,
         );
         
-        assert_eq!(sig.vid_pid, "046D:C08B");
+        assert_eq!(sig.vid_pid, "1234:5678");
         assert_eq!(sig.seen_count, 1);
         assert_eq!(sig.avg_confidence, 0.95);
     }
@@ -211,27 +211,27 @@ mod tests {
     fn test_device_signature_matching() {
         let structural = vec![0x01, 0x02, 0x03, 0x04];
         let sig = DeviceSignature::new(
-            0x046D,
-            0xC08B,
+            0x1234,
+            0x5678,
             &structural,
             None,
             Some("12345".to_string()),
-            Some("Logitech".to_string()),
-            Some("G502".to_string()),
+            Some("GenericVendor".to_string()),
+            Some("GenericMouse".to_string()),
             None,
             0.95,
         );
         
-        assert!(sig.matches(0x046D, 0xC08B, &structural, None, Some("12345")));
-        assert!(!sig.matches(0x046D, 0xC08C, &structural, None, Some("12345")));
+        assert!(sig.matches(0x1234, 0x5678, &structural, None, Some("12345")));
+        assert!(!sig.matches(0x1234, 0x5679, &structural, None, Some("12345")));
     }
     
     #[test]
     fn test_device_signature_update() {
         let structural = vec![0x01, 0x02, 0x03, 0x04];
         let mut sig = DeviceSignature::new(
-            0x046D,
-            0xC08B,
+            0x1234,
+            0x5678,
             &structural,
             None,
             None,
